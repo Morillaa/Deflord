@@ -25,6 +25,12 @@ const MAX_ENEMIES = 4;
 const ENEMY_SPEED = 40; // px/s
 const ENEMY_HIT_DISTANCE = TILE_SIZE * 0.5;
 const DAMAGE_DURATION = 15000;
+const ENEMY_MAX_HP = 3;
+
+// Torre de vigilancia
+const TOWER_RANGE_TILES = 2;
+const TOWER_FIRE_INTERVAL = 1500;
+const TOWER_DAMAGE = 1;
 
 // Zona inicial edificable: un bloque central de 5x5 dentro del grid de 10x8.
 const BUILDABLE_BOUNDS = { colStart: 2, colEnd: 7, rowStart: 1, rowEnd: 6 };
@@ -75,6 +81,17 @@ const BUILDING_TYPES = {
     intervals: [8000, 5000, 3000], // más lento que los otros dos en cada tramo, pero alcanzable
     cost: { wood: 20, gold: 15 },
   },
+  tower: {
+    key: 'tower',
+    label: 'Torre',
+    emoji: '🗼',
+    color: 0x55597a,
+    cost: { wood: 20, gold: 15 },
+    isTower: true,
+    range: TOWER_RANGE_TILES,
+    fireInterval: TOWER_FIRE_INTERVAL,
+    damage: TOWER_DAMAGE,
+  },
 };
 
 // Fase 2: aldeanos con roles — asignables a edificios generadores para acelerar su producción.
@@ -110,6 +127,7 @@ export default class VillageScene extends Phaser.Scene {
     this.updateCycle(delta);
     if (this.cyclePhase === 'night') {
       this.updateEnemies(delta);
+      this.updateTowers(delta);
     }
   }
 
@@ -125,6 +143,18 @@ export default class VillageScene extends Phaser.Scene {
       row >= BUILDABLE_BOUNDS.rowStart &&
       row < BUILDABLE_BOUNDS.rowEnd
     );
+  }
+
+  // Las torres solo pueden ir junto al camino (no encima), para no bloquear el paso.
+  isTowerSpot(col, row) {
+    if (this.isPathTile(col, row)) return false;
+    const neighbors = [
+      { col: col - 1, row },
+      { col: col + 1, row },
+      { col, row: row - 1 },
+      { col, row: row + 1 },
+    ];
+    return neighbors.some((n) => this.isPathTile(n.col, n.row));
   }
 
   tileCenter(col, row) {
@@ -196,9 +226,17 @@ export default class VillageScene extends Phaser.Scene {
       // Pequeño desvío lateral + variación de velocidad para que no queden
       // perfectamente superpuestos al compartir el mismo punto de entrada y camino.
       const jitter = Phaser.Math.Between(-18, 18);
-      const obj = this.add.text(spawn.x + jitter, spawn.y, '👹', { fontSize: '26px' }).setOrigin(0.5).setDepth(500);
+
+      const container = this.add.container(spawn.x + jitter, spawn.y).setDepth(500);
+      const icon = this.add.text(0, 0, '👹', { fontSize: '26px' }).setOrigin(0.5);
+      const hpBg = this.add.rectangle(0, -20, 24, 4, 0x2a1414, 0.9).setOrigin(0.5);
+      const hpFill = this.add.rectangle(0, -20, 24, 4, 0x4caf50, 1).setOrigin(0.5);
+      container.add([icon, hpBg, hpFill]);
+
       this.enemies.push({
-        obj,
+        container,
+        hpFill,
+        hp: ENEMY_MAX_HP,
         arrived: false,
         pathIndex: 1, // ya nacen sobre PATH_TILES[0], el punto de entrada
         jitter,
@@ -209,8 +247,13 @@ export default class VillageScene extends Phaser.Scene {
   }
 
   clearEnemies() {
-    this.enemies.forEach((enemy) => enemy.obj.destroy());
+    this.enemies.forEach((enemy) => enemy.container.destroy());
     this.enemies = [];
+  }
+
+  destroyEnemy(enemy) {
+    enemy.container.destroy();
+    this.enemies = this.enemies.filter((e) => e !== enemy);
   }
 
   findNearestBuildingTarget(fromX, fromY) {
@@ -257,10 +300,10 @@ export default class VillageScene extends Phaser.Scene {
             const c = this.tileCenter(wp.col, wp.row);
             return { x: c.x + enemy.jitter, y: c.y, key: null };
           })()
-        : this.findNearestBuildingTarget(enemy.obj.x, enemy.obj.y);
+        : this.findNearestBuildingTarget(enemy.container.x, enemy.container.y);
 
-      const dx = target.x - enemy.obj.x;
-      const dy = target.y - enemy.obj.y;
+      const dx = target.x - enemy.container.x;
+      const dy = target.y - enemy.container.y;
       const dist = Math.hypot(dx, dy);
 
       if (onPath) {
@@ -276,8 +319,70 @@ export default class VillageScene extends Phaser.Scene {
       }
 
       const move = ENEMY_SPEED * enemy.speedFactor * (delta / 1000);
-      enemy.obj.x += (dx / dist) * move;
-      enemy.obj.y += (dy / dist) * move;
+      enemy.container.x += (dx / dist) * move;
+      enemy.container.y += (dy / dist) * move;
+    });
+  }
+
+  updateTowers(delta) {
+    for (const entry of this.buildings.values()) {
+      const def = BUILDING_TYPES[entry.type];
+      if (!def.isTower) continue;
+
+      entry.fireCooldown -= delta;
+      if (entry.fireCooldown > 0) continue;
+
+      const target = this.findNearestEnemyInRange(entry, def);
+      if (!target) continue;
+
+      this.fireTowerAt(entry, target, def);
+      entry.fireCooldown = def.fireInterval;
+    }
+  }
+
+  findNearestEnemyInRange(entry, def) {
+    const towerX = entry.container.x + TILE_SIZE / 2;
+    const towerY = entry.container.y + TILE_SIZE / 2;
+    const rangePx = def.range * TILE_SIZE;
+
+    let nearest = null;
+    let nearestDist = Infinity;
+    for (const enemy of this.enemies) {
+      const dist = Math.hypot(enemy.container.x - towerX, enemy.container.y - towerY);
+      if (dist <= rangePx && dist < nearestDist) {
+        nearestDist = dist;
+        nearest = enemy;
+      }
+    }
+    return nearest;
+  }
+
+  fireTowerAt(entry, enemy, def) {
+    const towerCenter = { x: entry.container.x + TILE_SIZE / 2, y: entry.container.y + TILE_SIZE / 2 };
+    this.drawProjectile(towerCenter, { x: enemy.container.x, y: enemy.container.y });
+
+    enemy.hp -= def.damage;
+    const ratio = Math.max(enemy.hp, 0) / ENEMY_MAX_HP;
+    enemy.hpFill.setSize(24 * ratio, 4);
+
+    if (enemy.hp <= 0) {
+      this.destroyEnemy(enemy);
+    }
+  }
+
+  drawProjectile(from, to) {
+    const line = this.add.graphics().setDepth(600);
+    line.lineStyle(2, 0xfff2a8, 0.9);
+    line.beginPath();
+    line.moveTo(from.x, from.y);
+    line.lineTo(to.x, to.y);
+    line.strokePath();
+
+    this.tweens.add({
+      targets: line,
+      alpha: 0,
+      duration: 150,
+      onComplete: () => line.destroy(),
     });
   }
 
@@ -380,13 +485,14 @@ export default class VillageScene extends Phaser.Scene {
   createBuildMenu() {
     const panelY = this.gridOffset.y + GRID_HEIGHT + PANEL_GAP;
     const panelWidth = this.scale.width - 20;
-    const buttonGap = 10;
-    const buttonWidth = (panelWidth - buttonGap * 3) / 4;
+    const types = Object.values(BUILDING_TYPES);
+    const buttonGap = 8;
+    const buttonWidth = (panelWidth - buttonGap * (types.length - 1)) / types.length;
     const buttonHeight = PANEL_HEIGHT - 20;
 
     this.buildButtons = {};
 
-    Object.values(BUILDING_TYPES).forEach((def, i) => {
+    types.forEach((def, i) => {
       const x = 10 + i * (buttonWidth + buttonGap);
       const container = this.add.container(x, panelY);
 
@@ -469,9 +575,12 @@ export default class VillageScene extends Phaser.Scene {
     if (!this.selectedBuildingType) return;
 
     const def = BUILDING_TYPES[this.selectedBuildingType];
+    const placementOk = def.isTower ? this.isTowerSpot(col, row) : this.isBuildable(col, row);
 
-    if (!this.isBuildable(col, row)) {
-      this.showMessage('Esta zona aún no está desbloqueada');
+    if (!placementOk) {
+      this.showMessage(
+        def.isTower ? 'La torre debe colocarse junto al camino' : 'Esta zona aún no está desbloqueada'
+      );
       return;
     }
 
@@ -557,6 +666,7 @@ export default class VillageScene extends Phaser.Scene {
       damaged: false,
       damageIcon: null,
       damageTimer: null,
+      fireCooldown: 0,
     };
 
     if (def.resource) {
