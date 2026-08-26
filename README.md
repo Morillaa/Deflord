@@ -4,14 +4,17 @@ Citybuilder 2D con oleadas de defensa nocturnas, pensado para jugarse desde el n
 
 Construido con [Phaser 3](https://phaser.io/) + [Vite](https://vitejs.dev/).
 
-## Estado actual: Fase 0 — Núcleo visual
+## Estado actual: Fase 1 — Recursos y edificios básicos
 
-Esta primera fase solo incluye lo mínimo para validar el motor y el pipeline de despliegue:
+- Cuadrícula (grid) 2D top-down que representa las parcelas del pueblo.
+- Tres recursos con contador en el HUD superior: madera, comida y oro.
+- Panel inferior para elegir uno de 4 edificios y colocarlo tocando una casilla vacía; tocar un edificio ya colocado lo quita:
+  - **Vivienda**: no genera recursos, sube el límite de población (aún sin aldeanos).
+  - **Almacén de madera**: genera +1 madera cada 5s.
+  - **Granja**: genera +1 comida cada 5s.
+  - **Mercado**: genera +1 oro cada 12s (más lento que los otros dos).
 
-- Escena con una cuadrícula (grid) 2D top-down que representa las parcelas del pueblo.
-- Una casa de ejemplo: toca/haz clic en una casilla para colocarla, vuelve a tocar para quitarla.
-
-No incluye todavía: recursos, aldeanos, ciclo día/noche, oleadas de monstruos, héroe ni menús. Eso llegará en fases posteriores.
+No incluye todavía: aldeanos con roles, mejoras de edificios, ciclo día/noche, oleadas de monstruos ni héroe. Eso llegará en fases posteriores.
 
 ## Desarrollo local
 

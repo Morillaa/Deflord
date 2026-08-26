@@ -9,7 +9,7 @@ const config = {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
     width: 800,
-    height: 640,
+    height: 712,
   },
   scene: [VillageScene],
 };
