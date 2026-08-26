@@ -15,7 +15,7 @@ const MAX_WORKERS_PER_BUILDING = 2;
 
 const RESOURCE_ICONS = { wood: '🪵', food: '🌾', gold: '💰' };
 
-const STARTING_RESOURCES = { wood: 30, food: 20, gold: 10 };
+const STARTING_RESOURCES = { wood: 30, food: 20, gold: 15 };
 
 // Ciclo día/noche
 const DAY_DURATION = 60000;
@@ -28,6 +28,16 @@ const DAMAGE_DURATION = 15000;
 
 // Zona inicial edificable: un bloque central de 5x5 dentro del grid de 10x8.
 const BUILDABLE_BOUNDS = { colStart: 2, colEnd: 7, rowStart: 1, rowEnd: 6 };
+
+// Camino fijo de entrada: desde el borde superior hasta el centro del pueblo.
+// No es edificable, para poder colocar defensas junto a él más adelante.
+const PATH_TILES = [
+  { col: 4, row: 0 },
+  { col: 4, row: 1 },
+  { col: 4, row: 2 },
+  { col: 4, row: 3 },
+];
+const ENTRY_POINT = PATH_TILES[0];
 
 const BUILDING_TYPES = {
   house: {
@@ -62,7 +72,7 @@ const BUILDING_TYPES = {
     emoji: '💰',
     color: 0xd4af37,
     resource: 'gold',
-    intervals: [12000, 7000, 5000], // más lento que los otros dos en cada tramo
+    intervals: [8000, 5000, 3000], // más lento que los otros dos en cada tramo, pero alcanzable
     cost: { wood: 20, gold: 15 },
   },
 };
@@ -103,13 +113,25 @@ export default class VillageScene extends Phaser.Scene {
     }
   }
 
+  isPathTile(col, row) {
+    return PATH_TILES.some((p) => p.col === col && p.row === row);
+  }
+
   isBuildable(col, row) {
+    if (this.isPathTile(col, row)) return false;
     return (
       col >= BUILDABLE_BOUNDS.colStart &&
       col < BUILDABLE_BOUNDS.colEnd &&
       row >= BUILDABLE_BOUNDS.rowStart &&
       row < BUILDABLE_BOUNDS.rowEnd
     );
+  }
+
+  tileCenter(col, row) {
+    return {
+      x: this.gridOffset.x + col * TILE_SIZE + TILE_SIZE / 2,
+      y: this.gridOffset.y + row * TILE_SIZE + TILE_SIZE / 2,
+    };
   }
 
   createNightOverlay() {
@@ -169,39 +191,26 @@ export default class VillageScene extends Phaser.Scene {
 
   spawnEnemies() {
     const count = Phaser.Math.Between(MIN_ENEMIES, MAX_ENEMIES);
+    const spawn = this.tileCenter(ENTRY_POINT.col, ENTRY_POINT.row);
     for (let i = 0; i < count; i++) {
-      const { x, y } = this.randomBorderPosition();
-      const obj = this.add.text(x, y, '👹', { fontSize: '26px' }).setOrigin(0.5).setDepth(500);
-      this.enemies.push({ obj, arrived: false });
+      // Pequeño desvío lateral + variación de velocidad para que no queden
+      // perfectamente superpuestos al compartir el mismo punto de entrada y camino.
+      const jitter = Phaser.Math.Between(-18, 18);
+      const obj = this.add.text(spawn.x + jitter, spawn.y, '👹', { fontSize: '26px' }).setOrigin(0.5).setDepth(500);
+      this.enemies.push({
+        obj,
+        arrived: false,
+        pathIndex: 1, // ya nacen sobre PATH_TILES[0], el punto de entrada
+        jitter,
+        speedFactor: 0.85 + Math.random() * 0.3,
+        spawnDelay: Math.random() * 700,
+      });
     }
   }
 
   clearEnemies() {
     this.enemies.forEach((enemy) => enemy.obj.destroy());
     this.enemies = [];
-  }
-
-  randomBorderPosition() {
-    const side = Phaser.Math.Between(0, 3); // 0 arriba, 1 abajo, 2 izquierda, 3 derecha
-    let col;
-    let row;
-    if (side === 0) {
-      row = 0;
-      col = Phaser.Math.Between(0, GRID_COLS - 1);
-    } else if (side === 1) {
-      row = GRID_ROWS - 1;
-      col = Phaser.Math.Between(0, GRID_COLS - 1);
-    } else if (side === 2) {
-      col = 0;
-      row = Phaser.Math.Between(0, GRID_ROWS - 1);
-    } else {
-      col = GRID_COLS - 1;
-      row = Phaser.Math.Between(0, GRID_ROWS - 1);
-    }
-    return {
-      x: this.gridOffset.x + col * TILE_SIZE + TILE_SIZE / 2,
-      y: this.gridOffset.y + row * TILE_SIZE + TILE_SIZE / 2,
-    };
   }
 
   findNearestBuildingTarget(fromX, fromY) {
@@ -236,18 +245,37 @@ export default class VillageScene extends Phaser.Scene {
     this.enemies.forEach((enemy) => {
       if (enemy.arrived) return;
 
-      const target = this.findNearestBuildingTarget(enemy.obj.x, enemy.obj.y);
+      if (enemy.spawnDelay > 0) {
+        enemy.spawnDelay -= delta;
+        return;
+      }
+
+      const onPath = enemy.pathIndex < PATH_TILES.length;
+      const target = onPath
+        ? (() => {
+            const wp = PATH_TILES[enemy.pathIndex];
+            const c = this.tileCenter(wp.col, wp.row);
+            return { x: c.x + enemy.jitter, y: c.y, key: null };
+          })()
+        : this.findNearestBuildingTarget(enemy.obj.x, enemy.obj.y);
+
       const dx = target.x - enemy.obj.x;
       const dy = target.y - enemy.obj.y;
       const dist = Math.hypot(dx, dy);
 
-      if (dist < ENEMY_HIT_DISTANCE) {
+      if (onPath) {
+        // Sigue el camino tramo a tramo en vez de ir en línea recta libre.
+        if (dist < 4) {
+          enemy.pathIndex += 1;
+          return;
+        }
+      } else if (dist < ENEMY_HIT_DISTANCE) {
         enemy.arrived = true;
         if (target.key) this.damageBuilding(target.key);
         return;
       }
 
-      const move = ENEMY_SPEED * (delta / 1000);
+      const move = ENEMY_SPEED * enemy.speedFactor * (delta / 1000);
       enemy.obj.x += (dx / dist) * move;
       enemy.obj.y += (dy / dist) * move;
     });
@@ -293,7 +321,13 @@ export default class VillageScene extends Phaser.Scene {
         const x = offsetX + col * TILE_SIZE;
         const y = offsetY + row * TILE_SIZE;
 
-        if (this.isBuildable(col, row)) {
+        if (this.isPathTile(col, row)) {
+          // Camino de entrada: tierra, distinto tanto de lo edificable como de lo bloqueado.
+          g.fillStyle(0x9c7a4a, 1);
+          g.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+          g.lineStyle(1, 0x6e5433, 1);
+          g.strokeRect(x, y, TILE_SIZE, TILE_SIZE);
+        } else if (this.isBuildable(col, row)) {
           const color = (row + col) % 2 === 0 ? 0x3c6e3c : 0x356035;
           g.fillStyle(color, 1);
           g.fillRect(x, y, TILE_SIZE, TILE_SIZE);
