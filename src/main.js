@@ -14,4 +14,7 @@ const config = {
   scene: [VillageScene],
 };
 
-new Phaser.Game(config);
+const game = new Phaser.Game(config);
+
+// Acceso de conveniencia para depuración manual desde la consola del navegador.
+window.__deflordGame = game;

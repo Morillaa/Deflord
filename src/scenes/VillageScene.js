@@ -17,6 +17,15 @@ const RESOURCE_ICONS = { wood: '🪵', food: '🌾', gold: '💰' };
 
 const STARTING_RESOURCES = { wood: 30, food: 20, gold: 10 };
 
+// Ciclo día/noche
+const DAY_DURATION = 60000;
+const NIGHT_DURATION = 20000;
+const MIN_ENEMIES = 2;
+const MAX_ENEMIES = 4;
+const ENEMY_SPEED = 40; // px/s
+const ENEMY_HIT_DISTANCE = TILE_SIZE * 0.5;
+const DAMAGE_DURATION = 15000;
+
 // Zona inicial edificable: un bloque central de 5x5 dentro del grid de 10x8.
 const BUILDABLE_BOUNDS = { colStart: 2, colEnd: 7, rowStart: 1, rowEnd: 6 };
 
@@ -71,6 +80,9 @@ export default class VillageScene extends Phaser.Scene {
     this.suppressNextClick = false;
     this.freeVillagerIcons = [];
     this.messageText = null;
+    this.cyclePhase = 'day';
+    this.cycleTimeRemaining = DAY_DURATION;
+    this.enemies = [];
   }
 
   create() {
@@ -78,8 +90,17 @@ export default class VillageScene extends Phaser.Scene {
     this.drawHud();
     this.createBuildMenu();
     this.renderFreeVillagers();
+    this.createNightOverlay();
+    this.updateCycleHud();
 
     this.input.on('pointerdown', this.handlePointerDown, this);
+  }
+
+  update(time, delta) {
+    this.updateCycle(delta);
+    if (this.cyclePhase === 'night') {
+      this.updateEnemies(delta);
+    }
   }
 
   isBuildable(col, row) {
@@ -89,6 +110,176 @@ export default class VillageScene extends Phaser.Scene {
       row >= BUILDABLE_BOUNDS.rowStart &&
       row < BUILDABLE_BOUNDS.rowEnd
     );
+  }
+
+  createNightOverlay() {
+    this.nightOverlay = this.add
+      .rectangle(this.gridOffset.x, this.gridOffset.y, GRID_WIDTH, GRID_HEIGHT, 0x0a0a2a, 0)
+      .setOrigin(0)
+      .setDepth(450);
+  }
+
+  updateCycle(delta) {
+    this.cycleTimeRemaining -= delta;
+    if (this.cycleTimeRemaining <= 0) {
+      this.togglePhase();
+    }
+    this.updateCycleHud();
+  }
+
+  togglePhase() {
+    if (this.cyclePhase === 'day') {
+      this.cyclePhase = 'night';
+      this.cycleTimeRemaining = NIGHT_DURATION;
+      this.onNightStart();
+    } else {
+      this.cyclePhase = 'day';
+      this.cycleTimeRemaining = DAY_DURATION;
+      this.onDayStart();
+    }
+  }
+
+  onNightStart() {
+    this.showMessage('¡Cae la noche!');
+    this.darkenGrid(true);
+    this.spawnEnemies();
+  }
+
+  onDayStart() {
+    this.showMessage('Amanece');
+    this.darkenGrid(false);
+    this.clearEnemies();
+  }
+
+  darkenGrid(toNight) {
+    this.tweens.add({
+      targets: this.nightOverlay,
+      alpha: toNight ? 0.45 : 0,
+      duration: 800,
+      ease: 'Sine.easeInOut',
+    });
+  }
+
+  updateCycleHud() {
+    const seconds = Math.max(0, Math.ceil(this.cycleTimeRemaining / 1000));
+    const icon = this.cyclePhase === 'day' ? '☀️' : '🌙';
+    const label = this.cyclePhase === 'day' ? 'Día' : 'Noche';
+    this.cycleText.setText(`${icon} ${label} · ${seconds}s`);
+  }
+
+  spawnEnemies() {
+    const count = Phaser.Math.Between(MIN_ENEMIES, MAX_ENEMIES);
+    for (let i = 0; i < count; i++) {
+      const { x, y } = this.randomBorderPosition();
+      const obj = this.add.text(x, y, '👹', { fontSize: '26px' }).setOrigin(0.5).setDepth(500);
+      this.enemies.push({ obj, arrived: false });
+    }
+  }
+
+  clearEnemies() {
+    this.enemies.forEach((enemy) => enemy.obj.destroy());
+    this.enemies = [];
+  }
+
+  randomBorderPosition() {
+    const side = Phaser.Math.Between(0, 3); // 0 arriba, 1 abajo, 2 izquierda, 3 derecha
+    let col;
+    let row;
+    if (side === 0) {
+      row = 0;
+      col = Phaser.Math.Between(0, GRID_COLS - 1);
+    } else if (side === 1) {
+      row = GRID_ROWS - 1;
+      col = Phaser.Math.Between(0, GRID_COLS - 1);
+    } else if (side === 2) {
+      col = 0;
+      row = Phaser.Math.Between(0, GRID_ROWS - 1);
+    } else {
+      col = GRID_COLS - 1;
+      row = Phaser.Math.Between(0, GRID_ROWS - 1);
+    }
+    return {
+      x: this.gridOffset.x + col * TILE_SIZE + TILE_SIZE / 2,
+      y: this.gridOffset.y + row * TILE_SIZE + TILE_SIZE / 2,
+    };
+  }
+
+  findNearestBuildingTarget(fromX, fromY) {
+    let nearestKey = null;
+    let nearestX = 0;
+    let nearestY = 0;
+    let nearestDist = Infinity;
+
+    for (const [key, entry] of this.buildings.entries()) {
+      const cx = entry.container.x + TILE_SIZE / 2;
+      const cy = entry.container.y + TILE_SIZE / 2;
+      const dist = Math.hypot(cx - fromX, cy - fromY);
+      if (dist < nearestDist) {
+        nearestDist = dist;
+        nearestKey = key;
+        nearestX = cx;
+        nearestY = cy;
+      }
+    }
+
+    if (nearestKey) return { x: nearestX, y: nearestY, key: nearestKey };
+
+    // Sin edificios en pie: apuntan al centro de la zona edificable.
+    return {
+      x: this.gridOffset.x + ((BUILDABLE_BOUNDS.colStart + BUILDABLE_BOUNDS.colEnd) / 2) * TILE_SIZE,
+      y: this.gridOffset.y + ((BUILDABLE_BOUNDS.rowStart + BUILDABLE_BOUNDS.rowEnd) / 2) * TILE_SIZE,
+      key: null,
+    };
+  }
+
+  updateEnemies(delta) {
+    this.enemies.forEach((enemy) => {
+      if (enemy.arrived) return;
+
+      const target = this.findNearestBuildingTarget(enemy.obj.x, enemy.obj.y);
+      const dx = target.x - enemy.obj.x;
+      const dy = target.y - enemy.obj.y;
+      const dist = Math.hypot(dx, dy);
+
+      if (dist < ENEMY_HIT_DISTANCE) {
+        enemy.arrived = true;
+        if (target.key) this.damageBuilding(target.key);
+        return;
+      }
+
+      const move = ENEMY_SPEED * (delta / 1000);
+      enemy.obj.x += (dx / dist) * move;
+      enemy.obj.y += (dy / dist) * move;
+    });
+  }
+
+  damageBuilding(key) {
+    const entry = this.buildings.get(key);
+    if (!entry) return;
+
+    entry.damaged = true;
+    entry.bg.setFillStyle(0x8a1f1f, 1);
+    if (!entry.damageIcon) {
+      entry.damageIcon = this.add.text(TILE_SIZE * 0.82, TILE_SIZE * 0.18, '💥', { fontSize: '16px' }).setOrigin(0.5);
+      entry.container.add(entry.damageIcon);
+    }
+
+    if (entry.damageTimer) entry.damageTimer.remove();
+    entry.damageTimer = this.time.delayedCall(DAMAGE_DURATION, () => this.repairBuilding(key));
+  }
+
+  repairBuilding(key) {
+    const entry = this.buildings.get(key);
+    if (!entry) return;
+
+    entry.damaged = false;
+    entry.damageTimer = null;
+    const def = BUILDING_TYPES[entry.type];
+    entry.bg.setFillStyle(def.color, 1);
+    if (entry.damageIcon) {
+      entry.damageIcon.destroy();
+      entry.damageIcon = null;
+    }
   }
 
   drawGrid() {
@@ -127,10 +318,10 @@ export default class VillageScene extends Phaser.Scene {
   }
 
   drawHud() {
-    this.add.text(16, 6, 'Deflord — Fase 3 · cada edificio tiene un coste; solo la zona central es edificable', {
+    this.cycleText = this.add.text(16, 6, '', {
       fontFamily: 'sans-serif',
-      fontSize: '12px',
-      color: '#b7c9b7',
+      fontSize: '14px',
+      color: '#ffe9b0',
     });
 
     const resourceY = 26;
@@ -322,13 +513,26 @@ export default class VillageScene extends Phaser.Scene {
 
   placeBuilding(key, def, x, y) {
     const container = this.createBuildingVisual(x, y, def);
-    const entry = { type: def.key, container, timer: null, workers: 0, workerIcons: [] };
+    const entry = {
+      type: def.key,
+      container,
+      bg: container.bg,
+      timer: null,
+      workers: 0,
+      workerIcons: [],
+      damaged: false,
+      damageIcon: null,
+      damageTimer: null,
+    };
 
     if (def.resource) {
       entry.timer = this.time.addEvent({
         delay: def.intervals[0],
         loop: true,
-        callback: () => this.addResource(def.resource, 1),
+        callback: () => {
+          if (entry.damaged) return;
+          this.addResource(def.resource, 1);
+        },
       });
     }
 
@@ -344,6 +548,7 @@ export default class VillageScene extends Phaser.Scene {
   removeBuilding(key, entry) {
     entry.container.destroy();
     if (entry.timer) entry.timer.remove();
+    if (entry.damageTimer) entry.damageTimer.remove();
 
     if (entry.workers) {
       this.globalAssignmentOrder = this.globalAssignmentOrder.filter((k) => k !== key);
@@ -413,7 +618,10 @@ export default class VillageScene extends Phaser.Scene {
     entry.timer = this.time.addEvent({
       delay: def.intervals[entry.workers],
       loop: true,
-      callback: () => this.addResource(def.resource, 1),
+      callback: () => {
+        if (entry.damaged) return;
+        this.addResource(def.resource, 1);
+      },
     });
   }
 
@@ -441,6 +649,7 @@ export default class VillageScene extends Phaser.Scene {
     const icon = this.add.text(s / 2, s / 2, def.emoji, { fontSize: `${Math.floor(s * 0.5)}px` }).setOrigin(0.5);
 
     container.add([bg, icon]);
+    container.bg = bg;
     return container;
   }
 
