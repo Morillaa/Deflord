@@ -33,4 +33,4 @@ npm run preview
 
 Cada push a la rama por defecto del repo (`claude/deflord-phaser-setup-pnciya`) dispara el workflow `.github/workflows/deploy.yml`, que compila el proyecto con Vite y lo publica en GitHub Pages.
 
-Jugable en: https://morillaa.github.io/deflord/
+Jugable en: https://morillaa.github.io/Deflord/

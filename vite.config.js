@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 
-// Repo name on GitHub Pages: https://morillaa.github.io/deflord/
+// GitHub Pages serves paths case-sensitively; el repo es "Deflord" (D mayúscula):
+// https://morillaa.github.io/Deflord/
 export default defineConfig({
-  base: '/deflord/',
+  base: '/Deflord/',
 });
