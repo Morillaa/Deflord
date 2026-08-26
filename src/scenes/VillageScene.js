@@ -293,34 +293,47 @@ export default class VillageScene extends Phaser.Scene {
         return;
       }
 
-      const onPath = enemy.pathIndex < PATH_TILES.length;
-      const target = onPath
-        ? (() => {
-            const wp = PATH_TILES[enemy.pathIndex];
-            const c = this.tileCenter(wp.col, wp.row);
-            return { x: c.x + enemy.jitter, y: c.y, key: null };
-          })()
-        : this.findNearestBuildingTarget(enemy.container.x, enemy.container.y);
+      // Movimiento "clamped": nunca se pasa del punto objetivo en un frame, así que
+      // no puede quedar oscilando/atascado si un frame tarda más de la cuenta (algo
+      // normal en un navegador real). Si sobra distancia por recorrer, encadena el
+      // siguiente tramo del camino en el mismo frame.
+      let remainingMove = ENEMY_SPEED * enemy.speedFactor * (delta / 1000);
 
-      const dx = target.x - enemy.container.x;
-      const dy = target.y - enemy.container.y;
-      const dist = Math.hypot(dx, dy);
+      while (remainingMove > 0 && !enemy.arrived) {
+        const onPath = enemy.pathIndex < PATH_TILES.length;
+        const target = onPath
+          ? (() => {
+              const wp = PATH_TILES[enemy.pathIndex];
+              const c = this.tileCenter(wp.col, wp.row);
+              return { x: c.x + enemy.jitter, y: c.y, key: null };
+            })()
+          : this.findNearestBuildingTarget(enemy.container.x, enemy.container.y);
 
-      if (onPath) {
-        // Sigue el camino tramo a tramo en vez de ir en línea recta libre.
-        if (dist < 4) {
-          enemy.pathIndex += 1;
-          return;
+        const dx = target.x - enemy.container.x;
+        const dy = target.y - enemy.container.y;
+        const dist = Math.hypot(dx, dy);
+
+        // Solo se puede "llegar" a un edificio una vez terminado el camino fijo;
+        // mientras onPath, los edificios cercanos al sendero no afectan su avance.
+        if (!onPath && dist < ENEMY_HIT_DISTANCE) {
+          enemy.arrived = true;
+          if (target.key) this.damageBuilding(target.key);
+          break;
         }
-      } else if (dist < ENEMY_HIT_DISTANCE) {
-        enemy.arrived = true;
-        if (target.key) this.damageBuilding(target.key);
-        return;
-      }
 
-      const move = ENEMY_SPEED * enemy.speedFactor * (delta / 1000);
-      enemy.container.x += (dx / dist) * move;
-      enemy.container.y += (dy / dist) * move;
+        if (dist <= remainingMove) {
+          // Llega exactamente al punto objetivo este frame, sin pasarse de largo.
+          enemy.container.x = target.x;
+          enemy.container.y = target.y;
+          remainingMove -= dist;
+          if (onPath) enemy.pathIndex += 1;
+          continue;
+        }
+
+        enemy.container.x += (dx / dist) * remainingMove;
+        enemy.container.y += (dy / dist) * remainingMove;
+        remainingMove = 0;
+      }
     });
   }
 
@@ -359,7 +372,11 @@ export default class VillageScene extends Phaser.Scene {
 
   fireTowerAt(entry, enemy, def) {
     const towerCenter = { x: entry.container.x + TILE_SIZE / 2, y: entry.container.y + TILE_SIZE / 2 };
-    this.drawProjectile(towerCenter, { x: enemy.container.x, y: enemy.container.y });
+    const enemyPos = { x: enemy.container.x, y: enemy.container.y };
+
+    this.drawProjectile(towerCenter, enemyPos);
+    this.flashTower(towerCenter);
+    this.flashImpact(enemyPos);
 
     enemy.hp -= def.damage;
     const ratio = Math.max(enemy.hp, 0) / ENEMY_MAX_HP;
@@ -370,9 +387,33 @@ export default class VillageScene extends Phaser.Scene {
     }
   }
 
+  // Pulso breve en la torre: deja claro que SÍ tenía un enemigo en rango y disparó.
+  flashTower(center) {
+    const ring = this.add.circle(center.x, center.y, TILE_SIZE * 0.28, 0xfff2a8, 0.5).setDepth(550);
+    this.tweens.add({
+      targets: ring,
+      radius: TILE_SIZE * 0.6,
+      alpha: 0,
+      duration: 280,
+      onComplete: () => ring.destroy(),
+    });
+  }
+
+  // Destello de impacto sobre el enemigo alcanzado.
+  flashImpact(pos) {
+    const burst = this.add.text(pos.x, pos.y, '✦', { fontSize: '18px', color: '#fff2a8' }).setOrigin(0.5).setDepth(600);
+    this.tweens.add({
+      targets: burst,
+      scale: 1.8,
+      alpha: 0,
+      duration: 220,
+      onComplete: () => burst.destroy(),
+    });
+  }
+
   drawProjectile(from, to) {
     const line = this.add.graphics().setDepth(600);
-    line.lineStyle(2, 0xfff2a8, 0.9);
+    line.lineStyle(3, 0xfff2a8, 1);
     line.beginPath();
     line.moveTo(from.x, from.y);
     line.lineTo(to.x, to.y);
@@ -381,7 +422,7 @@ export default class VillageScene extends Phaser.Scene {
     this.tweens.add({
       targets: line,
       alpha: 0,
-      duration: 150,
+      duration: 220,
       onComplete: () => line.destroy(),
     });
   }
