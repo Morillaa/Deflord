@@ -15,6 +15,11 @@ const MAX_WORKERS_PER_BUILDING = 2;
 
 const RESOURCE_ICONS = { wood: '🪵', food: '🌾', gold: '💰' };
 
+const STARTING_RESOURCES = { wood: 30, food: 20, gold: 10 };
+
+// Zona inicial edificable: un bloque central de 5x5 dentro del grid de 10x8.
+const BUILDABLE_BOUNDS = { colStart: 2, colEnd: 7, rowStart: 1, rowEnd: 6 };
+
 const BUILDING_TYPES = {
   house: {
     key: 'house',
@@ -22,6 +27,7 @@ const BUILDING_TYPES = {
     emoji: '🏠',
     color: 0x8a6d3f,
     populationCap: 3,
+    cost: { wood: 20 },
   },
   lumberyard: {
     key: 'lumberyard',
@@ -30,6 +36,7 @@ const BUILDING_TYPES = {
     color: 0x5c4632,
     resource: 'wood',
     intervals: [5000, 3000, 2000], // por nº de aldeanos asignados (0,1,2)
+    cost: { wood: 15 },
   },
   farm: {
     key: 'farm',
@@ -38,6 +45,7 @@ const BUILDING_TYPES = {
     color: 0x7cb342,
     resource: 'food',
     intervals: [5000, 3000, 2000],
+    cost: { wood: 15, gold: 10 },
   },
   market: {
     key: 'market',
@@ -46,6 +54,7 @@ const BUILDING_TYPES = {
     color: 0xd4af37,
     resource: 'gold',
     intervals: [12000, 7000, 5000], // más lento que los otros dos en cada tramo
+    cost: { wood: 20, gold: 15 },
   },
 };
 
@@ -54,13 +63,14 @@ export default class VillageScene extends Phaser.Scene {
   constructor() {
     super('VillageScene');
     this.buildings = new Map(); // "col,row" -> { type, container, timer, workers, workerIcons }
-    this.resources = { wood: 0, food: 0, gold: 0 };
+    this.resources = { ...STARTING_RESOURCES };
     this.populationCap = 0;
     this.globalAssignmentOrder = []; // grid keys, en orden cronológico de asignación
     this.selectedBuildingType = null;
     this.activePanel = null;
     this.suppressNextClick = false;
     this.freeVillagerIcons = [];
+    this.messageText = null;
   }
 
   create() {
@@ -72,6 +82,15 @@ export default class VillageScene extends Phaser.Scene {
     this.input.on('pointerdown', this.handlePointerDown, this);
   }
 
+  isBuildable(col, row) {
+    return (
+      col >= BUILDABLE_BOUNDS.colStart &&
+      col < BUILDABLE_BOUNDS.colEnd &&
+      row >= BUILDABLE_BOUNDS.rowStart &&
+      row < BUILDABLE_BOUNDS.rowEnd
+    );
+  }
+
   drawGrid() {
     const offsetX = Math.round((this.scale.width - GRID_WIDTH) / 2);
     const offsetY = GRID_TOP;
@@ -80,19 +99,35 @@ export default class VillageScene extends Phaser.Scene {
     const g = this.add.graphics();
     for (let row = 0; row < GRID_ROWS; row++) {
       for (let col = 0; col < GRID_COLS; col++) {
-        const color = (row + col) % 2 === 0 ? 0x3c6e3c : 0x356035;
         const x = offsetX + col * TILE_SIZE;
         const y = offsetY + row * TILE_SIZE;
-        g.fillStyle(color, 1);
-        g.fillRect(x, y, TILE_SIZE, TILE_SIZE);
-        g.lineStyle(1, 0x2c522c, 1);
-        g.strokeRect(x, y, TILE_SIZE, TILE_SIZE);
+
+        if (this.isBuildable(col, row)) {
+          const color = (row + col) % 2 === 0 ? 0x3c6e3c : 0x356035;
+          g.fillStyle(color, 1);
+          g.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+          g.lineStyle(1, 0x2c522c, 1);
+          g.strokeRect(x, y, TILE_SIZE, TILE_SIZE);
+        } else {
+          // Zona sin desbloquear: tono apagado + algún icono de candado suelto.
+          g.fillStyle(0x1a2318, 1);
+          g.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+          g.lineStyle(1, 0x121a10, 1);
+          g.strokeRect(x, y, TILE_SIZE, TILE_SIZE);
+
+          if ((row * GRID_COLS + col) % 4 === 0) {
+            this.add
+              .text(x + TILE_SIZE / 2, y + TILE_SIZE / 2, '🔒', { fontSize: '16px' })
+              .setOrigin(0.5)
+              .setAlpha(0.3);
+          }
+        }
       }
     }
   }
 
   drawHud() {
-    this.add.text(16, 6, 'Deflord — Fase 2 · toca un edificio generador para asignar aldeanos', {
+    this.add.text(16, 6, 'Deflord — Fase 3 · cada edificio tiene un coste; solo la zona central es edificable', {
       fontFamily: 'sans-serif',
       fontSize: '12px',
       color: '#b7c9b7',
@@ -102,7 +137,7 @@ export default class VillageScene extends Phaser.Scene {
     this.resourceTexts = {};
     let x = 16;
     for (const key of ['wood', 'food', 'gold']) {
-      this.resourceTexts[key] = this.add.text(x, resourceY, `${RESOURCE_ICONS[key]} 0`, {
+      this.resourceTexts[key] = this.add.text(x, resourceY, `${RESOURCE_ICONS[key]} ${this.resources[key]}`, {
         fontFamily: 'sans-serif',
         fontSize: '18px',
         color: '#f2f2f2',
@@ -136,18 +171,26 @@ export default class VillageScene extends Phaser.Scene {
         .setInteractive({ useHandCursor: true });
 
       const icon = this.add
-        .text(buttonWidth / 2, buttonHeight * 0.32, def.emoji, { fontSize: '26px' })
+        .text(buttonWidth / 2, buttonHeight * 0.22, def.emoji, { fontSize: '22px' })
         .setOrigin(0.5);
 
       const label = this.add
-        .text(buttonWidth / 2, buttonHeight * 0.72, def.label, {
+        .text(buttonWidth / 2, buttonHeight * 0.52, def.label, {
           fontFamily: 'sans-serif',
-          fontSize: '12px',
+          fontSize: '11px',
           color: '#ffffff',
         })
         .setOrigin(0.5);
 
-      container.add([bg, icon, label]);
+      const costText = this.add
+        .text(buttonWidth / 2, buttonHeight * 0.8, this.formatCost(def.cost), {
+          fontFamily: 'sans-serif',
+          fontSize: '11px',
+          color: '#ffe066',
+        })
+        .setOrigin(0.5);
+
+      container.add([bg, icon, label, costText]);
       container.bg = bg;
 
       bg.on('pointerdown', () => this.selectBuildingType(def.key));
@@ -201,9 +244,80 @@ export default class VillageScene extends Phaser.Scene {
     if (!this.selectedBuildingType) return;
 
     const def = BUILDING_TYPES[this.selectedBuildingType];
+
+    if (!this.isBuildable(col, row)) {
+      this.showMessage('Esta zona aún no está desbloqueada');
+      return;
+    }
+
+    if (!this.canAfford(def.cost)) {
+      this.showMessage('Recursos insuficientes');
+      this.flashButtonError(def.key);
+      return;
+    }
+
+    this.spendResources(def.cost);
     const x = offsetX + col * TILE_SIZE;
     const y = offsetY + row * TILE_SIZE;
     this.placeBuilding(key, def, x, y);
+  }
+
+  formatCost(cost) {
+    return Object.entries(cost)
+      .map(([res, amount]) => `${RESOURCE_ICONS[res]}${amount}`)
+      .join(' ');
+  }
+
+  canAfford(cost) {
+    return Object.entries(cost).every(([res, amount]) => this.resources[res] >= amount);
+  }
+
+  spendResources(cost) {
+    Object.entries(cost).forEach(([res, amount]) => {
+      this.resources[res] -= amount;
+      this.resourceTexts[res].setText(`${RESOURCE_ICONS[res]} ${this.resources[res]}`);
+    });
+  }
+
+  flashButtonError(buildingKey) {
+    const container = this.buildButtons[buildingKey];
+    if (!container) return;
+    const originalColor = BUILDING_TYPES[buildingKey].color;
+    container.bg.setFillStyle(0xcc3333, 0.9);
+    this.time.delayedCall(350, () => {
+      if (container.bg) container.bg.setFillStyle(originalColor, 0.85);
+    });
+  }
+
+  showMessage(text) {
+    if (this.messageText) {
+      this.tweens.killTweensOf(this.messageText);
+      this.messageText.destroy();
+    }
+
+    this.messageText = this.add
+      .text(this.scale.width / 2, this.gridOffset.y + 24, text, {
+        fontFamily: 'sans-serif',
+        fontSize: '14px',
+        color: '#ff6b6b',
+        backgroundColor: '#00000099',
+        padding: { x: 10, y: 5 },
+      })
+      .setOrigin(0.5)
+      .setDepth(2000);
+
+    this.tweens.add({
+      targets: this.messageText,
+      alpha: 0,
+      delay: 900,
+      duration: 400,
+      onComplete: () => {
+        if (this.messageText) {
+          this.messageText.destroy();
+          this.messageText = null;
+        }
+      },
+    });
   }
 
   placeBuilding(key, def, x, y) {
