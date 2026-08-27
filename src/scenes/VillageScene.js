@@ -256,7 +256,15 @@ export default class VillageScene extends Phaser.Scene {
     this.enemies = this.enemies.filter((e) => e !== enemy);
   }
 
-  findNearestBuildingTarget(fromX, fromY) {
+  // Objetivo tras terminar el camino: SOLO un edificio realmente cerca del final
+  // del sendero (radio pequeño), nunca "el más cercano de todo el mapa". Antes, un
+  // edificio simplemente adyacente al camino (pero lejos del centro real) podía
+  // ganar esa búsqueda global y el enemigo se quedaba enganchado en él para siempre.
+  findVillageCenterTarget() {
+    const centerTile = PATH_TILES[PATH_TILES.length - 1];
+    const center = this.tileCenter(centerTile.col, centerTile.row);
+    const radiusPx = TILE_SIZE * 1.5;
+
     let nearestKey = null;
     let nearestX = 0;
     let nearestY = 0;
@@ -265,8 +273,8 @@ export default class VillageScene extends Phaser.Scene {
     for (const [key, entry] of this.buildings.entries()) {
       const cx = entry.container.x + TILE_SIZE / 2;
       const cy = entry.container.y + TILE_SIZE / 2;
-      const dist = Math.hypot(cx - fromX, cy - fromY);
-      if (dist < nearestDist) {
+      const dist = Math.hypot(cx - center.x, cy - center.y);
+      if (dist <= radiusPx && dist < nearestDist) {
         nearestDist = dist;
         nearestKey = key;
         nearestX = cx;
@@ -274,14 +282,8 @@ export default class VillageScene extends Phaser.Scene {
       }
     }
 
-    if (nearestKey) return { x: nearestX, y: nearestY, key: nearestKey };
-
-    // Sin edificios en pie: apuntan al centro de la zona edificable.
-    return {
-      x: this.gridOffset.x + ((BUILDABLE_BOUNDS.colStart + BUILDABLE_BOUNDS.colEnd) / 2) * TILE_SIZE,
-      y: this.gridOffset.y + ((BUILDABLE_BOUNDS.rowStart + BUILDABLE_BOUNDS.rowEnd) / 2) * TILE_SIZE,
-      key: null,
-    };
+    if (!nearestKey) return null;
+    return { x: nearestX, y: nearestY, key: nearestKey };
   }
 
   updateEnemies(delta) {
@@ -301,13 +303,20 @@ export default class VillageScene extends Phaser.Scene {
 
       while (remainingMove > 0 && !enemy.arrived) {
         const onPath = enemy.pathIndex < PATH_TILES.length;
-        const target = onPath
-          ? (() => {
-              const wp = PATH_TILES[enemy.pathIndex];
-              const c = this.tileCenter(wp.col, wp.row);
-              return { x: c.x + enemy.jitter, y: c.y, key: null };
-            })()
-          : this.findNearestBuildingTarget(enemy.container.x, enemy.container.y);
+        let target;
+
+        if (onPath) {
+          const wp = PATH_TILES[enemy.pathIndex];
+          const c = this.tileCenter(wp.col, wp.row);
+          target = { x: c.x + enemy.jitter, y: c.y, key: null };
+        } else {
+          target = this.findVillageCenterTarget();
+          if (!target) {
+            // Terminó el camino y no hay nada que atacar justo ahí: se detiene sin más.
+            enemy.arrived = true;
+            break;
+          }
+        }
 
         const dx = target.x - enemy.container.x;
         const dy = target.y - enemy.container.y;
@@ -317,7 +326,7 @@ export default class VillageScene extends Phaser.Scene {
         // mientras onPath, los edificios cercanos al sendero no afectan su avance.
         if (!onPath && dist < ENEMY_HIT_DISTANCE) {
           enemy.arrived = true;
-          if (target.key) this.damageBuilding(target.key);
+          this.damageBuilding(target.key);
           break;
         }
 
