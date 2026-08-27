@@ -6,6 +6,8 @@ Construido con [Phaser 3](https://phaser.io/) + [Vite](https://vitejs.dev/).
 
 ## Estado actual: Fase 5 — Torre de vigilancia (primera defensa)
 
+Estilo visual cartoon cálido, todo con arte procedural (formas dibujadas con Phaser Graphics, sin imágenes externas todavía): cielo con degradado de fondo, césped con variación de tono y matojos/flores sueltas, camino de tierra con guijarros y parches de desgaste, cada edificio y la torre con su propia silueta (tejados con degradado, sombra proyectada, detalles propios), enemigos con silueta oscura de contorno brillante, y HUD con paneles redondeados semi-transparentes en vez de texto plano.
+
 - **Torre de vigilancia** (20 🪵 + 15 💰): solo se puede colocar en una casilla junto al camino de entrada (no encima, para no bloquear el paso). De noche, dispara sola cada 1.5s contra el enemigo más cercano dentro de 2 casillas de radio, sin necesitar interacción del jugador. De día no hace nada.
 - Los enemigos ahora tienen una pequeña barra de vida (3 puntos) sobre su icono; cada impacto de torre resta 1 punto y dibuja una línea breve entre la torre y el enemigo. Si llegan a 0, el enemigo desaparece antes de alcanzar el pueblo.
 - Sin torres (o si un enemigo consigue pasar sin ser destruido), todo sigue igual que antes: el enemigo daña temporalmente el edificio que alcance.

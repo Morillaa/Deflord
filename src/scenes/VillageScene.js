@@ -113,6 +113,9 @@ export default class VillageScene extends Phaser.Scene {
   }
 
   create() {
+    this.createSkyBackground();
+    this.createBuildingTextures();
+    this.createEnemyTexture();
     this.drawGrid();
     this.drawHud();
     this.createBuildMenu();
@@ -121,6 +124,218 @@ export default class VillageScene extends Phaser.Scene {
     this.updateCycleHud();
 
     this.input.on('pointerdown', this.handlePointerDown, this);
+  }
+
+  // Cielo cálido de fondo detrás de todo el tablero, para que no sea un negro plano.
+  createSkyBackground() {
+    const g = this.add.graphics().setDepth(-100);
+    g.fillGradientStyle(0x8fd3ea, 0x8fd3ea, 0xffe3ae, 0xffe3ae, 1);
+    g.fillRect(0, 0, this.scale.width, this.scale.height);
+  }
+
+  bakeTexture(key, size, drawFn) {
+    const g = this.add.graphics();
+    drawFn(g, size);
+    g.generateTexture(key, size, size);
+    g.destroy();
+  }
+
+  // Dibuja cada edificio (y la torre) con formas de Phaser Graphics en vez de
+  // emojis, con sombra propia, volumen y una paleta cálida tipo cartoon.
+  createBuildingTextures() {
+    const s = TILE_SIZE;
+    const shadow = (g) => {
+      g.fillStyle(0x140a04, 0.32);
+      g.fillEllipse(s * 0.5, s * 0.92, s * 0.62, s * 0.15);
+    };
+
+    this.bakeTexture('house', s, (g) => {
+      shadow(g);
+      g.fillStyle(0xdba26a, 1);
+      g.fillRoundedRect(s * 0.2, s * 0.52, s * 0.6, s * 0.34, 4);
+      g.lineStyle(2, 0x8a5a34, 1);
+      g.strokeRoundedRect(s * 0.2, s * 0.52, s * 0.6, s * 0.34, 4);
+
+      g.fillGradientStyle(0xe0653f, 0xe0653f, 0x8a2f1f, 0x8a2f1f, 1);
+      g.fillTriangle(s * 0.5, s * 0.12, s * 0.1, s * 0.54, s * 0.9, s * 0.54);
+      g.lineStyle(2, 0x6b2416, 1);
+      g.strokeTriangle(s * 0.5, s * 0.12, s * 0.1, s * 0.54, s * 0.9, s * 0.54);
+
+      g.fillStyle(0x5b3a29, 1);
+      g.fillRoundedRect(s * 0.44, s * 0.68, s * 0.12, s * 0.18, 2);
+      g.fillStyle(0xffe6a0, 1);
+      g.fillRoundedRect(s * 0.26, s * 0.58, s * 0.1, s * 0.1, 2);
+      g.lineStyle(1.5, 0xb5793d, 0.8);
+      g.strokeRoundedRect(s * 0.26, s * 0.58, s * 0.1, s * 0.1, 2);
+    });
+
+    this.bakeTexture('lumberyard', s, (g) => {
+      shadow(g);
+      g.fillStyle(0x8a5a34, 1);
+      g.fillRoundedRect(s * 0.16, s * 0.46, s * 0.68, s * 0.4, 4);
+      g.lineStyle(2, 0x5c3b20, 1);
+      g.strokeRoundedRect(s * 0.16, s * 0.46, s * 0.68, s * 0.4, 4);
+
+      g.lineStyle(1.5, 0x6b4527, 0.85);
+      for (let i = 1; i <= 2; i++) {
+        const py = s * 0.46 + (s * 0.4 * i) / 3;
+        g.beginPath();
+        g.moveTo(s * 0.19, py);
+        g.lineTo(s * 0.81, py);
+        g.strokePath();
+      }
+
+      g.fillStyle(0x5c3b20, 1);
+      g.fillRoundedRect(s * 0.13, s * 0.36, s * 0.74, s * 0.13, 3);
+
+      const logColors = [0xc98a4b, 0xb5793d];
+      [
+        [s * 0.28, s * 0.87],
+        [s * 0.4, s * 0.89],
+        [s * 0.5, s * 0.87],
+      ].forEach(([lx, ly], i) => {
+        g.fillStyle(logColors[i % 2], 1);
+        g.fillCircle(lx, ly, s * 0.075);
+        g.lineStyle(1.5, 0x7a4e28, 1);
+        g.strokeCircle(lx, ly, s * 0.075);
+      });
+    });
+
+    this.bakeTexture('farm', s, (g) => {
+      shadow(g);
+      g.fillStyle(0xecdcb0, 1);
+      g.fillRoundedRect(s * 0.22, s * 0.5, s * 0.56, s * 0.36, 4);
+      g.lineStyle(2, 0xb8a173, 1);
+      g.strokeRoundedRect(s * 0.22, s * 0.5, s * 0.56, s * 0.36, 4);
+
+      g.fillGradientStyle(0xc0432c, 0xc0432c, 0x7a2618, 0x7a2618, 1);
+      g.fillTriangle(s * 0.5, s * 0.14, s * 0.14, s * 0.52, s * 0.86, s * 0.52);
+      g.lineStyle(2, 0x5c1d11, 1);
+      g.strokeTriangle(s * 0.5, s * 0.14, s * 0.14, s * 0.52, s * 0.86, s * 0.52);
+
+      g.fillStyle(0x8a5a34, 1);
+      g.fillRoundedRect(s * 0.42, s * 0.66, s * 0.16, s * 0.2, 2);
+
+      g.fillStyle(0x6fae3a, 1);
+      for (let i = 0; i < 4; i++) {
+        const cx = s * 0.2 + i * s * 0.16;
+        g.fillTriangle(cx, s * 0.9, cx - 3, s * 0.98, cx + 3, s * 0.98);
+      }
+    });
+
+    this.bakeTexture('market', s, (g) => {
+      shadow(g);
+      g.fillStyle(0x8a5a34, 1);
+      g.fillRoundedRect(s * 0.22, s * 0.62, s * 0.56, s * 0.24, 3);
+      g.lineStyle(2, 0x5c3b20, 1);
+      g.strokeRoundedRect(s * 0.22, s * 0.62, s * 0.56, s * 0.24, 3);
+
+      g.lineStyle(3, 0x6b4527, 1);
+      g.beginPath();
+      g.moveTo(s * 0.26, s * 0.62);
+      g.lineTo(s * 0.26, s * 0.28);
+      g.strokePath();
+      g.beginPath();
+      g.moveTo(s * 0.74, s * 0.62);
+      g.lineTo(s * 0.74, s * 0.28);
+      g.strokePath();
+
+      const stripeColors = [0xd4af37, 0xf1d98a];
+      const stripes = 4;
+      for (let i = 0; i < stripes; i++) {
+        const x0 = s * 0.2 + ((s * 0.6) / stripes) * i;
+        const x1 = x0 + (s * 0.6) / stripes;
+        g.fillStyle(stripeColors[i % 2], 1);
+        g.fillTriangle(x0, s * 0.3, x1, s * 0.3, (x0 + x1) / 2, s * 0.14);
+      }
+      g.lineStyle(2, 0x8a6d1f, 0.8);
+      g.beginPath();
+      g.moveTo(s * 0.18, s * 0.3);
+      g.lineTo(s * 0.82, s * 0.3);
+      g.strokePath();
+
+      g.fillStyle(0xffe066, 1);
+      g.fillCircle(s * 0.38, s * 0.68, s * 0.05);
+      g.fillCircle(s * 0.5, s * 0.66, s * 0.05);
+      g.fillCircle(s * 0.62, s * 0.68, s * 0.05);
+    });
+
+    this.bakeTexture('tower', s, (g) => {
+      g.fillStyle(0x140a04, 0.32);
+      g.fillEllipse(s * 0.5, s * 0.94, s * 0.66, s * 0.14);
+
+      g.fillStyle(0x6b6f8a, 1);
+      g.beginPath();
+      g.moveTo(s * 0.24, s * 0.9);
+      g.lineTo(s * 0.76, s * 0.9);
+      g.lineTo(s * 0.66, s * 0.56);
+      g.lineTo(s * 0.34, s * 0.56);
+      g.closePath();
+      g.fillPath();
+      g.lineStyle(2, 0x454863, 1);
+      g.strokePath();
+
+      g.fillStyle(0x777bab, 1);
+      g.fillRect(s * 0.38, s * 0.22, s * 0.24, s * 0.36);
+      g.lineStyle(2, 0x454863, 1);
+      g.strokeRect(s * 0.38, s * 0.22, s * 0.24, s * 0.36);
+
+      g.fillStyle(0x2a2c40, 1);
+      g.fillRoundedRect(s * 0.47, s * 0.34, s * 0.06, s * 0.14, 2);
+
+      g.fillStyle(0x8b8fc0, 1);
+      g.fillRoundedRect(s * 0.28, s * 0.16, s * 0.44, s * 0.1, 2);
+      g.lineStyle(2, 0x454863, 1);
+      g.strokeRoundedRect(s * 0.28, s * 0.16, s * 0.44, s * 0.1, 2);
+
+      [0.3, 0.44, 0.58, 0.68].forEach((fx) => {
+        g.fillStyle(0x8b8fc0, 1);
+        g.fillRect(s * fx, s * 0.09, s * 0.05, s * 0.08);
+      });
+
+      g.lineStyle(2, 0x454863, 1);
+      g.beginPath();
+      g.moveTo(s * 0.5, s * 0.09);
+      g.lineTo(s * 0.5, s * 0.0);
+      g.strokePath();
+      g.fillStyle(0xc0432c, 1);
+      g.fillTriangle(s * 0.5, s * 0.0, s * 0.5, s * 0.06, s * 0.66, s * 0.03);
+    });
+  }
+
+  // Silueta de enemigo propia (no emoji genérico): forma angulosa oscura con
+  // contorno brillante para que destaque sobre el terreno, más ojos y cuernos.
+  createEnemyTexture() {
+    const size = 48;
+    this.bakeTexture('enemy', size, (g) => {
+      g.fillStyle(0x7a1a5c, 0.35);
+      g.fillCircle(size / 2, size / 2, size * 0.46);
+
+      g.fillStyle(0x6b1220, 1);
+      g.beginPath();
+      g.moveTo(size * 0.5, size * 0.08);
+      g.lineTo(size * 0.78, size * 0.28);
+      g.lineTo(size * 0.86, size * 0.62);
+      g.lineTo(size * 0.62, size * 0.92);
+      g.lineTo(size * 0.38, size * 0.92);
+      g.lineTo(size * 0.14, size * 0.62);
+      g.lineTo(size * 0.22, size * 0.28);
+      g.closePath();
+      g.fillPath();
+      g.lineStyle(2.5, 0xff5577, 0.9);
+      g.strokePath();
+
+      g.fillStyle(0x4a0d16, 1);
+      g.fillTriangle(size * 0.32, size * 0.14, size * 0.4, size * 0.04, size * 0.42, size * 0.22);
+      g.fillTriangle(size * 0.68, size * 0.14, size * 0.6, size * 0.04, size * 0.58, size * 0.22);
+
+      g.fillStyle(0xffe066, 1);
+      g.fillCircle(size * 0.38, size * 0.48, size * 0.07);
+      g.fillCircle(size * 0.62, size * 0.48, size * 0.07);
+      g.fillStyle(0x1a0510, 1);
+      g.fillCircle(size * 0.38, size * 0.48, size * 0.032);
+      g.fillCircle(size * 0.62, size * 0.48, size * 0.032);
+    });
   }
 
   update(time, delta) {
@@ -165,10 +380,16 @@ export default class VillageScene extends Phaser.Scene {
   }
 
   createNightOverlay() {
+    // OJO: el 6º argumento de add.rectangle() es fillAlpha, una propiedad DISTINTA
+    // de .alpha (se multiplican entre sí). Si se deja en 0 aquí, animar .alpha
+    // después nunca lo hace visible (fillAlpha=0 * cualquier alpha = 0 siempre).
+    // Por eso el oscurecimiento nocturno nunca se veía pese a que darkenGrid()
+    // "funcionaba" (el valor de .alpha sí cambiaba, solo que no importaba).
     this.nightOverlay = this.add
-      .rectangle(this.gridOffset.x, this.gridOffset.y, GRID_WIDTH, GRID_HEIGHT, 0x0a0a2a, 0)
+      .rectangle(this.gridOffset.x, this.gridOffset.y, GRID_WIDTH, GRID_HEIGHT, 0x2a1840, 1)
       .setOrigin(0)
-      .setDepth(450);
+      .setDepth(450)
+      .setAlpha(0);
   }
 
   updateCycle(delta) {
@@ -228,7 +449,7 @@ export default class VillageScene extends Phaser.Scene {
       const jitter = Phaser.Math.Between(-18, 18);
 
       const container = this.add.container(spawn.x + jitter, spawn.y).setDepth(500);
-      const icon = this.add.text(0, 0, '👹', { fontSize: '26px' }).setOrigin(0.5);
+      const icon = this.add.image(0, 0, 'enemy').setOrigin(0.5).setDisplaySize(36, 36);
       const hpBg = this.add.rectangle(0, -20, 24, 4, 0x2a1414, 0.9).setOrigin(0.5);
       const hpFill = this.add.rectangle(0, -20, 24, 4, 0x4caf50, 1).setOrigin(0.5);
       container.add([icon, hpBg, hpFill]);
@@ -441,7 +662,7 @@ export default class VillageScene extends Phaser.Scene {
     if (!entry) return;
 
     entry.damaged = true;
-    entry.bg.setFillStyle(0x8a1f1f, 1);
+    entry.bg.setTint(0xff5555);
     if (!entry.damageIcon) {
       entry.damageIcon = this.add.text(TILE_SIZE * 0.82, TILE_SIZE * 0.18, '💥', { fontSize: '16px' }).setOrigin(0.5);
       entry.container.add(entry.damageIcon);
@@ -457,8 +678,7 @@ export default class VillageScene extends Phaser.Scene {
 
     entry.damaged = false;
     entry.damageTimer = null;
-    const def = BUILDING_TYPES[entry.type];
-    entry.bg.setFillStyle(def.color, 1);
+    entry.bg.clearTint();
     if (entry.damageIcon) {
       entry.damageIcon.destroy();
       entry.damageIcon = null;
@@ -471,23 +691,23 @@ export default class VillageScene extends Phaser.Scene {
     this.gridOffset = { x: offsetX, y: offsetY };
 
     const g = this.add.graphics();
+    const grassColors = [0x4a9a3c, 0x3f8a35, 0x5aab47, 0x357a30];
+    const dirtColors = [0xad8352, 0x9c7345];
+
     for (let row = 0; row < GRID_ROWS; row++) {
       for (let col = 0; col < GRID_COLS; col++) {
         const x = offsetX + col * TILE_SIZE;
         const y = offsetY + row * TILE_SIZE;
+        // Semillas deterministas (no Math.random) para que la decoración sea
+        // estable pero no se repita en un patrón demasiado regular.
+        const seedA = (col * 7 + row * 13) % grassColors.length;
+        const seedB = (col * 5 + row * 3) % 7;
+        const seedC = (col * 3 + row * 11) % 9;
 
         if (this.isPathTile(col, row)) {
-          // Camino de entrada: tierra, distinto tanto de lo edificable como de lo bloqueado.
-          g.fillStyle(0x9c7a4a, 1);
-          g.fillRect(x, y, TILE_SIZE, TILE_SIZE);
-          g.lineStyle(1, 0x6e5433, 1);
-          g.strokeRect(x, y, TILE_SIZE, TILE_SIZE);
+          this.drawPathTile(g, x, y, dirtColors[(col + row) % dirtColors.length]);
         } else if (this.isBuildable(col, row)) {
-          const color = (row + col) % 2 === 0 ? 0x3c6e3c : 0x356035;
-          g.fillStyle(color, 1);
-          g.fillRect(x, y, TILE_SIZE, TILE_SIZE);
-          g.lineStyle(1, 0x2c522c, 1);
-          g.strokeRect(x, y, TILE_SIZE, TILE_SIZE);
+          this.drawGrassTile(g, x, y, grassColors[seedA], seedB, seedC);
         } else {
           // Zona sin desbloquear: tono apagado + algún icono de candado suelto.
           g.fillStyle(0x1a2318, 1);
@@ -506,29 +726,107 @@ export default class VillageScene extends Phaser.Scene {
     }
   }
 
+  drawGrassTile(g, x, y, baseColor, seedB, seedC) {
+    const s = TILE_SIZE;
+    g.fillStyle(baseColor, 1);
+    g.fillRect(x, y, s, s);
+    g.lineStyle(1, 0x2c522c, 0.5);
+    g.strokeRect(x, y, s, s);
+
+    // Tuft de hierba mas oscuro, solo en algunas casillas.
+    if (seedB === 0 || seedB === 3) {
+      const tx = x + s * (0.25 + (seedC % 3) * 0.15);
+      const ty = y + s * (0.6 + (seedC % 2) * 0.15);
+      g.lineStyle(2, 0x1f4d1c, 0.7);
+      for (let i = -1; i <= 1; i++) {
+        g.beginPath();
+        g.moveTo(tx + i * 3, ty + 6);
+        g.lineTo(tx + i * 5, ty - 4);
+        g.strokePath();
+      }
+    }
+
+    // Flor pequeña ocasional.
+    if (seedB === 5 && seedC % 2 === 0) {
+      const fx = x + s * (0.4 + (seedC % 3) * 0.1);
+      const fy = y + s * (0.35 + (seedC % 4) * 0.1);
+      const petal = seedC % 3 === 0 ? 0xfff3b0 : seedC % 3 === 1 ? 0xffb6c1 : 0xffffff;
+      g.fillStyle(petal, 0.95);
+      [[-3, 0], [3, 0], [0, -3], [0, 3]].forEach(([dx, dy]) => {
+        g.fillCircle(fx + dx, fy + dy, 2.2);
+      });
+      g.fillStyle(0xffe066, 1);
+      g.fillCircle(fx, fy, 2);
+    }
+  }
+
+  drawPathTile(g, x, y, baseColor) {
+    const s = TILE_SIZE;
+    g.fillStyle(baseColor, 1);
+    g.fillRect(x, y, s, s);
+
+    // Parches de desgaste (manchas irregulares mas oscuras) para romper lo plano.
+    g.fillStyle(0x7a5a34, 0.35);
+    g.fillEllipse(x + s * 0.3, y + s * 0.35, s * 0.4, s * 0.22);
+    g.fillEllipse(x + s * 0.68, y + s * 0.72, s * 0.36, s * 0.2);
+
+    // Guijarros sueltos.
+    const pebbles = [
+      [0.22, 0.65, 0x8a8a82],
+      [0.62, 0.28, 0x7a7a72],
+      [0.78, 0.55, 0x9a9a90],
+    ];
+    pebbles.forEach(([px, py, color]) => {
+      g.fillStyle(color, 0.85);
+      g.fillEllipse(x + s * px, y + s * py, 6, 4);
+      g.fillStyle(0xffffff, 0.25);
+      g.fillEllipse(x + s * px - 1, y + s * py - 1, 2, 1.4);
+    });
+
+    // Borde suavizado (tono intermedio en vez de un contorno duro).
+    g.lineStyle(2, 0x6e5433, 0.4);
+    g.strokeRect(x + 1, y + 1, s - 2, s - 2);
+  }
+
   drawHud() {
-    this.cycleText = this.add.text(16, 6, '', {
+    const panels = this.add.graphics();
+    const panelColor = 0x3a2410;
+    const panelAlpha = 0.6;
+
+    panels.fillStyle(panelColor, panelAlpha);
+    panels.fillRoundedRect(10, 4, 150, 21, 8);
+
+    this.cycleText = this.add.text(20, 6, '', {
       fontFamily: 'sans-serif',
       fontSize: '14px',
+      fontStyle: 'bold',
       color: '#ffe9b0',
     });
 
-    const resourceY = 26;
+    const resourceY = 31;
     this.resourceTexts = {};
     let x = 16;
     for (const key of ['wood', 'food', 'gold']) {
+      panels.fillStyle(panelColor, panelAlpha);
+      panels.fillRoundedRect(x - 6, resourceY - 4, 82, 25, 10);
+
       this.resourceTexts[key] = this.add.text(x, resourceY, `${RESOURCE_ICONS[key]} ${this.resources[key]}`, {
         fontFamily: 'sans-serif',
-        fontSize: '18px',
-        color: '#f2f2f2',
+        fontSize: '17px',
+        fontStyle: 'bold',
+        color: '#fff3d6',
       });
       x += 90;
     }
 
-    this.populationText = this.add.text(x + 10, resourceY, '🧑 Aldeanos: 0/0', {
+    panels.fillStyle(panelColor, panelAlpha);
+    panels.fillRoundedRect(x + 4, resourceY - 4, 142, 25, 10);
+
+    this.populationText = this.add.text(x + 12, resourceY, '🧑 Aldeanos: 0/0', {
       fontFamily: 'sans-serif',
-      fontSize: '18px',
-      color: '#f2f2f2',
+      fontSize: '17px',
+      fontStyle: 'bold',
+      color: '#fff3d6',
     });
   }
 
@@ -552,11 +850,12 @@ export default class VillageScene extends Phaser.Scene {
         .setInteractive({ useHandCursor: true });
 
       const icon = this.add
-        .text(buttonWidth / 2, buttonHeight * 0.22, def.emoji, { fontSize: '22px' })
-        .setOrigin(0.5);
+        .image(buttonWidth / 2, buttonHeight * 0.28, def.key)
+        .setOrigin(0.5)
+        .setDisplaySize(36, 36);
 
       const label = this.add
-        .text(buttonWidth / 2, buttonHeight * 0.52, def.label, {
+        .text(buttonWidth / 2, buttonHeight * 0.6, def.label, {
           fontFamily: 'sans-serif',
           fontSize: '11px',
           color: '#ffffff',
@@ -837,13 +1136,10 @@ export default class VillageScene extends Phaser.Scene {
     const s = TILE_SIZE;
     const container = this.add.container(x, y);
 
-    const bg = this.add
-      .rectangle(s / 2, s / 2, s * 0.82, s * 0.82, def.color, 1)
-      .setStrokeStyle(2, 0x1c2b1c, 0.7);
-    const icon = this.add.text(s / 2, s / 2, def.emoji, { fontSize: `${Math.floor(s * 0.5)}px` }).setOrigin(0.5);
+    const sprite = this.add.image(s / 2, s / 2, def.key).setOrigin(0.5);
 
-    container.add([bg, icon]);
-    container.bg = bg;
+    container.add(sprite);
+    container.bg = sprite;
     return container;
   }
 
